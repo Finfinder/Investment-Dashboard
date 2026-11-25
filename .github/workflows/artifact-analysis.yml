@@ -1,0 +1,71 @@
+name: Artifact Analysis
+
+on:
+  push:
+    branches: ['**']
+  schedule:
+    - cron: '0 3 * * 0'
+
+permissions:
+  contents: read
+
+jobs:
+  codebase-analysing:
+    name: Codebase Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyyaml markdown
+
+      - name: Run codebase analysis
+        run: python scripts/analyze_codebase.py
+
+      - name: Upload analysis report
+        uses: actions/upload-artifact@v7
+        with:
+          name: codebase-analysis-report
+          path: Docs/CodebaseAnalysis/
+          retention-days: 30
+
+  evaluating-skills:
+    name: Skill Evaluation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyyaml markdown
+
+      - name: Run skill evaluation
+        run: python scripts/evaluate_skills.py
+
+      - name: Upload evaluation report
+        uses: actions/upload-artifact@v7
+        with:
+          name: skill-evaluation-report
+          path: Docs/Evaluations/
+          retention-days: 90

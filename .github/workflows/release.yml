@@ -1,0 +1,260 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v*
+
+permissions: {}
+
+jobs:
+  version-consistency:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-version-consistency.yml
+    with:
+      source-repository: ${{ github.repository }}
+      repository-ref: ${{ github.ref }}
+      expected-version: ${{ github.ref_name }}
+    secrets: inherit
+
+  next-version-request:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reusable-next-version-request.yml
+    with:
+      source-repository: ${{ github.repository }}
+      repository-ref: ${{ github.ref }}
+      expected-release-version: ${{ github.ref_name }}
+    secrets: inherit
+
+  release:
+    needs: [version-consistency, next-version-request]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ github.ref_name }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Prepare release metadata
+        id: prepare
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          python3 <<'PY'
+          import os
+          from pathlib import Path
+
+          tag_name = os.environ['TAG_NAME']
+          version = tag_name.removeprefix('v')
+          changelog_path = Path('CHANGELOG.md')
+          notes_path = Path(os.environ['RUNNER_TEMP']) / 'release_notes.md'
+
+          lines = changelog_path.read_text(encoding='utf-8').splitlines()
+          start = None
+          end = None
+
+          for index, line in enumerate(lines):
+              if line.startswith('## ['):
+                  if line.startswith(f'## [{version}]'):
+                      start = index + 1
+                  elif start is not None:
+                      end = index
+                      break
+
+          if start is None:
+              notes = f'Release {version}\n\nNo dedicated entry found in CHANGELOG.md for this version.\n'
+          else:
+              selected_lines = lines[start:end]
+              while selected_lines and not selected_lines[0].strip():
+                  selected_lines.pop(0)
+              while selected_lines and not selected_lines[-1].strip():
+                  selected_lines.pop()
+
+              notes = '\n'.join(selected_lines).strip()
+              if not notes:
+                  notes = f'Release {version}\n\nNo detailed notes were recorded in CHANGELOG.md for this version.\n'
+              else:
+                  notes += '\n'
+
+          notes_path.write_text(notes, encoding='utf-8')
+
+          github_output = Path(os.environ['GITHUB_OUTPUT'])
+          with github_output.open('a', encoding='utf-8') as handle:
+              handle.write(f'tag_name={tag_name}\n')
+              handle.write(f'version={version}\n')
+              handle.write(f'release_title=AI_Instruction {version}\n')
+              handle.write(f'notes_path={notes_path.as_posix()}\n')
+          PY
+
+      - name: Run workflow artifact contract tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/workflow-artifact-contract.tests.ps1
+
+      - name: Run sync dry-run dispatcher coverage
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          $configuration = New-PesterConfiguration
+          $configuration.Run.Path = @(
+              'tests/sync-dry-run.tests.ps1'
+              'tests/invoke-sync-dry-run-branches.tests.ps1'
+          )
+          $configuration.Run.PassThru = $true
+          $configuration.Run.Exit = $false
+          $configuration.CodeCoverage.Enabled = $true
+          $configuration.CodeCoverage.Path = @('scripts/invoke-sync-dry-run.psm1')
+          $configuration.CodeCoverage.ExcludeTests = $true
+          $configuration.CodeCoverage.OutputFormat = 'Cobertura'
+          $configuration.CodeCoverage.OutputPath = 'coverage.xml'
+          $configuration.CodeCoverage.OutputEncoding = 'UTF8'
+          $result = Invoke-Pester -Configuration $configuration
+          if ($result.FailedCount -gt 0) {
+              exit 1
+          }
+
+      - name: Enforce Pester line coverage gate
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          $testConfiguration = New-PesterConfiguration
+          $testConfiguration.Run.Path = 'tests/coverage-gate.tests.ps1'
+          $testConfiguration.Run.Exit = $true
+          Invoke-Pester -Configuration $testConfiguration
+          .\scripts\assert-pester-coverage.ps1 -ReportPath coverage.xml -MinimumLineRate 0.80
+
+      - name: Run reusable workflow mirror sync tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/reusable-workflow-mirror-sync.tests.ps1
+
+      - name: Run ensure-pester5 helper tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/ensure-pester5.tests.ps1
+
+      - name: Run Pester legacy syntax guard tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/pester-legacy-syntax-guard.tests.ps1
+
+      - name: Run archive issue files tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/archive-issue-files.tests.ps1
+
+      - name: Run migrate issue archive history tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/migrate-issue-archive-history.tests.ps1
+
+      - name: Run copilot artifact token measurement tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/measure-copilot-artifact-tokens.tests.ps1
+
+      - name: Run artifact token budget tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          $result = Invoke-Pester tests/assert-artifact-token-budget.tests.ps1 -PassThru
+          if ($result.Result -ne 'Passed') {
+              exit 1
+          }
+          .\scripts\assert-artifact-token-budget.ps1 -IncludeResources
+
+      - name: Run next version request helper tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/validate-next-version-request.tests.ps1
+
+      - name: Run reusable next version request workflow tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/reusable-next-version-request.tests.ps1
+
+      - name: Run version consistency tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/validate-version-consistency.tests.ps1
+
+      - name: Run open next version branch tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/open-next-version-branch.tests.ps1
+
+      - name: Run version branch queue tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/get-version-branch-queue.tests.ps1 -EnableExit
+
+      - name: Run release workflow tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/release-workflow.tests.ps1
+
+      - name: Set up Python for third-party action pinning tests
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install zizmor for third-party action pinning tests
+        run: |
+          python -m pip install --disable-pip-version-check zizmor==1.24.1
+
+      - name: Run third-party action pinning workflow tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/third-party-action-pinning-workflow.tests.ps1
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ steps.prepare.outputs.tag_name }}
+          RELEASE_TITLE: ${{ steps.prepare.outputs.release_title }}
+          NOTES_PATH: ${{ steps.prepare.outputs.notes_path }}
+        run: |
+          set -euo pipefail
+
+          release_view_stderr="${{ runner.temp }}/release_view.stderr"
+
+          if gh release view "$TAG_NAME" >/dev/null 2>"$release_view_stderr"; then
+            gh release edit "$TAG_NAME" --title "$RELEASE_TITLE" --notes-file "$NOTES_PATH"
+          else
+            view_status=$?
+
+            if grep -qi "release not found" "$release_view_stderr"; then
+              gh release create "$TAG_NAME" --verify-tag --title "$RELEASE_TITLE" --notes-file "$NOTES_PATH"
+            else
+              cat "$release_view_stderr" >&2
+              exit "$view_status"
+            fi
+          fi
+
+      - name: Write post-release archive reminder
+        shell: pwsh
+        run: |
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '## Przypomnienie po publikacji'
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ''
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '- Aktywne artefakty release w `.github/Issue/` powinny byc juz zarchiwizowane przez lokalny `/release`.'
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '- Zakres przypomnienia: glowne `*.research.md` i `*.plan.md` z `.github/Issue/` do `Archiwum/<wersja>/`.'
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '- To tylko sygnal procesowy: workflow nie uruchamia zdalnej archiwizacji ani maintenance dla legacy historii.'

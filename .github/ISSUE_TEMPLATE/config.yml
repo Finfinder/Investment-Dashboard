@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: GitHub Discussions
+    url: https://github.com/Finfinder/Investment-Dashboard/discussions
+    about: Ask questions, share ideas, and discuss features with the community
+  - name: Contributing Guide
+    url: https://github.com/Finfinder/Investment-Dashboard/blob/main/CONTRIBUTING.md
+    about: Read the contributing guide before opening an issue
+  - name: Report a Security Vulnerability
+    url: https://github.com/Finfinder/Investment-Dashboard/security/advisories/new
+    about: Report a security vulnerability privately through GitHub Security Advisories

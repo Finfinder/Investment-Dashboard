@@ -1,0 +1,126 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in Investment Dashboard
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: Describe what happened...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Application Version
+      description: Which version or commit of Investment Dashboard are you using?
+      placeholder: "e.g. 1.0.0, commit abc1234"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Affected Area
+      description: Which part of the application is affected?
+      options:
+        - Portfolio Dashboard & KPIs
+        - Holdings & Positions Table
+        - Transactions & Ledger (Buy/Sell/Dividends)
+        - XTB Report Importer (CSV/XLSX)
+        - Performance & Allocation Charts
+        - Authentication & TOTP 2FA
+        - Local Storage & Backup/Restore
+        - Market Data Provider (Stooq)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser
+      description: Which browser are you using?
+      options:
+        - Chrome / Chromium
+        - Firefox
+        - Edge
+        - Safari
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS
+        - Ubuntu / Debian
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js & npm Version
+      description: If running from source, specify Node and npm versions.
+      placeholder: "e.g. Node 20.12.0, npm 10.5.0"
+    validations:
+      required: false
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Step-by-step instructions to reproduce the issue.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        > **?? Security Warning:** Do NOT paste sensitive personal financial data, account numbers, or passwords. Redact account specifics before pasting logs or screenshots.
+
+  - type: textarea
+    id: console-logs
+    attributes:
+      label: Browser Console Log Output
+      description: Open Developer Tools (F12) -> Console and paste any relevant errors.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context, sample anonymized CSV/XLSX structure, or screenshots.
+    validations:
+      required: false

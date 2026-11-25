@@ -1,0 +1,55 @@
+name: Feature Request
+description: Suggest an idea, enhancement, or new feature for Investment Dashboard
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feature Category
+      description: What area of the project does this feature relate to?
+      options:
+        - Portfolio Analytics & Metrics
+        - New Broker / Statement Importer
+        - Charts & Visualizations
+        - Holdings & Position Management
+        - Market Data & Price Providers
+        - Authentication & Security
+        - UI / UX & Accessibility
+        - Data Export / Sync
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Use Case
+      description: Describe the problem you are trying to solve or your investment tracking need.
+      placeholder: "I want to track..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution or feature behavior you would like to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative workflows, manual methods, or third-party tools you have evaluated.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Attach mockups, screenshots, sample calculations, or relevant links.
+    validations:
+      required: false

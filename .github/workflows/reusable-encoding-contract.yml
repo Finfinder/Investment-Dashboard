@@ -1,0 +1,119 @@
+name: Reusable Encoding Contract
+
+on:
+  workflow_call:
+    inputs:
+      source-repository:
+        description: Repository containing files to validate.
+        required: true
+        type: string
+      repository-ref:
+        description: Git ref or SHA to validate.
+        required: true
+        type: string
+      contract-test-path:
+        description: Relative path to the canonical encoding contract test inside the automation repository.
+        required: false
+        default: tests/encoding-contract.tests.ps1
+        type: string
+      automation-repository:
+        description: Repository hosting the shared encoding contract test and helpers.
+        required: false
+        default: Finfinder/AI_Instruction
+        type: string
+    secrets:
+      AI_INSTRUCTION_WORKFLOW_TOKEN:
+        description: Optional token with read access to the automation repository for cross-repo checkout.
+        required: false
+
+permissions: {}
+
+jobs:
+  encoding-contract:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.source-repository }}
+          ref: ${{ inputs.repository-ref }}
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ github.token }}
+          path: repository
+
+      - name: Checkout automation repository
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.automation-repository }}
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.AI_INSTRUCTION_WORKFLOW_TOKEN != '' && secrets.AI_INSTRUCTION_WORKFLOW_TOKEN || github.token }}
+          path: ai_instruction
+
+      - name: Run encoding contract tests
+        shell: pwsh
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.source-repository }}
+          REPOSITORY_REF: ${{ inputs.repository-ref }}
+          CONTRACT_TEST_PATH: ${{ inputs.contract-test-path }}
+          AUTOMATION_REPOSITORY: ${{ inputs.automation-repository }}
+        run: |
+          $repositoryRoot = [System.IO.Path]::GetFullPath("${{ github.workspace }}/repository")
+          $contractTestPath = [System.IO.Path]::GetFullPath((Join-Path "${{ github.workspace }}/ai_instruction" $env:CONTRACT_TEST_PATH))
+
+          if (-not (Test-Path -LiteralPath $repositoryRoot)) {
+            throw "Missing target repository checkout: $repositoryRoot"
+          }
+
+          if (-not (Test-Path -LiteralPath $contractTestPath)) {
+            throw "Missing encoding contract test file: $contractTestPath"
+          }
+
+          try {
+            # Bootstrap Pester 5 inside ai_instruction or target
+            $ensurePesterPath = Join-Path "${{ github.workspace }}/ai_instruction" 'scripts/ensure-pester5.ps1'
+            if (Test-Path -LiteralPath $ensurePesterPath) {
+              & $ensurePesterPath | Out-Null
+            }
+
+            # Ustaw zmienna srodowiskowa aby test encoding-contract.tests.ps1 skanowal
+            # docelowe repozytorium zamiast automation repo.
+            $env:ENCODING_CONTRACT_REPOSITORY_ROOT = $repositoryRoot
+            
+            $configuration = New-PesterConfiguration
+            $configuration.Run.Path = @($contractTestPath)
+            $configuration.Run.PassThru = $true
+            $configuration.Run.Exit = $false
+            $configuration.Run.Throw = $true
+
+            $result = Invoke-Pester -Configuration $configuration
+
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '## Encoding Contract'
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ''
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Repository: $env:SOURCE_REPOSITORY"
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Ref: $env:REPOSITORY_REF"
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Automation repository: $env:AUTOMATION_REPOSITORY"
+
+            if ($result.FailedCount -gt 0) {
+              throw "Detected encoding contract violations."
+            }
+
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '- Status: passed'
+          }
+          catch {
+            if (-not (Select-String -LiteralPath $env:GITHUB_STEP_SUMMARY -Pattern '^## Encoding Contract' -Quiet)) {
+              Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '## Encoding Contract'
+              Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ''
+              Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Repository: $env:SOURCE_REPOSITORY"
+              Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Ref: $env:REPOSITORY_REF"
+              Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Automation repository: $env:AUTOMATION_REPOSITORY"
+            }
+
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '- Status: failed'
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Error: $($_.Exception.Message)"
+            throw
+          }

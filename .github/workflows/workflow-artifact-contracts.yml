@@ -1,0 +1,143 @@
+name: Workflow Artifact Contracts
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  workflow-artifact-contracts:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Run workflow artifact contract tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/workflow-artifact-contract.tests.ps1
+
+      - name: Run sync dry-run dispatcher coverage
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          $configuration = New-PesterConfiguration
+          $configuration.Run.Path = @(
+              'tests/sync-dry-run.tests.ps1'
+              'tests/invoke-sync-dry-run-branches.tests.ps1'
+          )
+          $configuration.Run.PassThru = $true
+          $configuration.Run.Exit = $false
+          $configuration.CodeCoverage.Enabled = $true
+          $configuration.CodeCoverage.Path = @('scripts/invoke-sync-dry-run.psm1')
+          $configuration.CodeCoverage.ExcludeTests = $true
+          $configuration.CodeCoverage.OutputFormat = 'Cobertura'
+          $configuration.CodeCoverage.OutputPath = 'coverage.xml'
+          $configuration.CodeCoverage.OutputEncoding = 'UTF8'
+          $result = Invoke-Pester -Configuration $configuration
+          if ($result.FailedCount -gt 0) {
+              exit 1
+          }
+
+      - name: Enforce Pester line coverage gate
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          $testConfiguration = New-PesterConfiguration
+          $testConfiguration.Run.Path = 'tests/coverage-gate.tests.ps1'
+          $testConfiguration.Run.Exit = $true
+          Invoke-Pester -Configuration $testConfiguration
+          .\scripts\assert-pester-coverage.ps1 -ReportPath coverage.xml -MinimumLineRate 0.80
+
+      - name: Run reusable workflow mirror sync tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/reusable-workflow-mirror-sync.tests.ps1
+
+      - name: Run ensure-pester5 helper tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/ensure-pester5.tests.ps1
+
+      - name: Run Pester legacy syntax guard tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/pester-legacy-syntax-guard.tests.ps1
+
+      - name: Run encoding contract tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/encoding-contract.tests.ps1 -EnableExit
+          # Fail-closed gate: -EnableExit ustawia exit 1 przy naruszeniach UTF-8 (bez niego Invoke-Pester zwraca 0).
+
+      - name: Set up Python for encoding contract hook tests
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Run encoding contract hook tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/encoding-contract-hook.tests.ps1
+
+      - name: Run archive issue files tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/archive-issue-files.tests.ps1
+
+      - name: Run migrate issue archive history tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/migrate-issue-archive-history.tests.ps1
+
+      - name: Run copilot artifact token measurement tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/measure-copilot-artifact-tokens.tests.ps1
+
+      - name: Run artifact token budget tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          $result = Invoke-Pester tests/assert-artifact-token-budget.tests.ps1 -PassThru
+          if ($result.Result -ne 'Passed') {
+              exit 1
+          }
+          .\scripts\assert-artifact-token-budget.ps1 -IncludeResources
+
+      - name: Run version branch queue tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/get-version-branch-queue.tests.ps1 -EnableExit
+
+      - name: Set up Python for third-party action pinning tests
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install zizmor for third-party action pinning tests
+        run: |
+          python -m pip install --disable-pip-version-check zizmor==1.24.1
+
+      - name: Run third-party action pinning workflow tests
+        shell: pwsh
+        run: |
+          .\scripts\ensure-pester5.ps1 | Out-Null
+          Invoke-Pester tests/third-party-action-pinning-workflow.tests.ps1

@@ -1,0 +1,134 @@
+name: Reusable Third-Party Action Pinning
+
+on:
+  workflow_call:
+    inputs:
+      source-repository:
+        description: Repository containing workflow files to validate.
+        required: true
+        type: string
+      repository-ref:
+        description: Git ref or SHA to validate.
+        required: true
+        type: string
+      policy-path:
+        description: Relative path to the canonical zizmor policy inside the automation repository.
+        required: false
+        default: .github/actions-security/zizmor.yml
+        type: string
+      automation-repository:
+        description: Repository hosting the shared workflow security policy.
+        required: false
+        default: Finfinder/AI_Instruction
+        type: string
+    secrets:
+      AI_INSTRUCTION_WORKFLOW_TOKEN:
+        description: Optional token with read access to the automation repository for cross-repo checkout.
+        required: false
+
+permissions: {}
+
+jobs:
+  third-party-action-pinning:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.source-repository }}
+          ref: ${{ inputs.repository-ref }}
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ github.token }}
+          path: repository
+
+      - name: Checkout automation repository
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.automation-repository }}
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.AI_INSTRUCTION_WORKFLOW_TOKEN != '' && secrets.AI_INSTRUCTION_WORKFLOW_TOKEN || github.token }}
+          path: ai_instruction
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install zizmor
+        run: |
+          python -m pip install --disable-pip-version-check zizmor==1.24.1
+
+      - name: Validate third-party action pinning
+        shell: pwsh
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.source-repository }}
+          REPOSITORY_REF: ${{ inputs.repository-ref }}
+          POLICY_PATH: ${{ inputs.policy-path }}
+          AUTOMATION_REPOSITORY: ${{ inputs.automation-repository }}
+        run: |
+          $repositoryRoot = "${{ github.workspace }}/repository"
+          $policyPath = [System.IO.Path]::GetFullPath((Join-Path "${{ github.workspace }}/ai_instruction" $env:POLICY_PATH))
+
+          if (-not (Test-Path -LiteralPath $repositoryRoot)) {
+            throw "Missing target repository checkout: $repositoryRoot"
+          }
+
+          if (-not (Test-Path -LiteralPath $policyPath)) {
+            throw "Missing zizmor policy file: $policyPath"
+          }
+
+          try {
+            $jsonOutput = zizmor --offline --collect=workflows --no-exit-codes --format=json --config "$policyPath" "$repositoryRoot"
+            $findings = @()
+
+            if (-not [string]::IsNullOrWhiteSpace($jsonOutput) -and $jsonOutput.Trim() -ne '[]') {
+              $parsed = $jsonOutput | ConvertFrom-Json
+              $findings = @($parsed)
+            }
+
+            $unpinnedFindings = @(
+              $findings | Where-Object {
+                $identifiers = foreach ($propertyName in 'ident', 'rule', 'audit', 'id', 'code') {
+                  if ($_.PSObject.Properties.Name -contains $propertyName) {
+                    $_.$propertyName
+                  }
+                }
+
+                $identifiers -contains 'unpinned-uses'
+              }
+            )
+
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '## Third-Party Action Pinning'
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ''
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Repository: $env:SOURCE_REPOSITORY"
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Ref: $env:REPOSITORY_REF"
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Policy repository: $env:AUTOMATION_REPOSITORY"
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Policy path: $env:POLICY_PATH"
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Unpinned third-party findings: $($unpinnedFindings.Count)"
+
+            if ($unpinnedFindings.Count -gt 0) {
+              $detailsPath = Join-Path $env:RUNNER_TEMP 'zizmor-unpinned-uses.json'
+              $unpinnedFindings | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $detailsPath -Encoding UTF8
+              Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Details: $detailsPath"
+              throw "Detected $($unpinnedFindings.Count) mutable third-party action reference(s)."
+            }
+          }
+          catch {
+            if (-not (Select-String -LiteralPath $env:GITHUB_STEP_SUMMARY -Pattern '^## Third-Party Action Pinning' -Quiet)) {
+              Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '## Third-Party Action Pinning'
+              Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ''
+              Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Repository: $env:SOURCE_REPOSITORY"
+              Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Ref: $env:REPOSITORY_REF"
+              Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Policy repository: $env:AUTOMATION_REPOSITORY"
+              Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Policy path: $env:POLICY_PATH"
+            }
+
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value '- Status: failed'
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "- Error: $($_.Exception.Message)"
+            throw
+          }

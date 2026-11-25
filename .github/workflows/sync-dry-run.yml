@@ -1,0 +1,189 @@
+name: Sync Dry Run
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  pull_request_target:
+    branches:
+      - main
+      - master
+
+permissions: {}
+
+jobs:
+  static-contract:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    # actions/checkout@v7 requires a non-empty token; this job gets minimal read-only access (no secrets, no write)
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout pull request with read-only permissions
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Inspect synchronization workflow contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $workflow = Get-Content -LiteralPath '.github/workflows/sync-dry-run.yml' -Raw
+          $requiredFragments = @(
+            'pull_request_target',
+            'github.event.pull_request.base.sha',
+            'permissions: {}',
+            'persist-credentials: false'
+          )
+
+          foreach ($fragment in $requiredFragments) {
+            if ($workflow -notlike "*$fragment*") {
+              throw "Missing trusted workflow contract fragment: $fragment"
+            }
+          }
+
+  trusted-sync:
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - name: Checkout trusted base revision
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
+
+      - name: Prepare trusted artifact staging
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $artifactRoot = Join-Path $env:RUNNER_TEMP 'sync-dry-run-artifact'
+          if (Test-Path -LiteralPath $artifactRoot) {
+            throw "Trusted artifact staging already exists: $artifactRoot"
+          }
+
+          $null = New-Item -Path $artifactRoot -ItemType Directory
+          "artifact_root=$artifactRoot" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Run synchronization dry-run scripts
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $artifactRoot = Join-Path $env:RUNNER_TEMP 'sync-dry-run-artifact'
+
+          .\scripts\invoke-sync-dry-run.ps1 `
+            -RepositoryRoot ${{ github.workspace }} `
+            -ScriptPaths @(
+              'scripts/sync-github-meta.ps1',
+              'scripts/seed-github-issues.ps1'
+            ) `
+            -LogPath 'sync-dry-run.log' `
+            -TrustedStagingRoot $artifactRoot `
+            -TrustedToken $env:GH_TOKEN
+
+      - name: Validate synchronization artifact
+        id: validate
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runnerTemp = $env:RUNNER_TEMP
+          $expectedRoot = Join-Path $runnerTemp 'sync-dry-run-artifact'
+          $artifactPath = Join-Path $expectedRoot 'sync-dry-run.log'
+          $artifactValid = $false
+          $validationError = $null
+
+          function Get-PathSegments {
+              param([Parameter(Mandatory = $true)][string]$Path)
+
+              $fullPath = [System.IO.Path]::GetFullPath($Path)
+              $pathRoot = [System.IO.Path]::GetPathRoot($fullPath)
+              $currentPath = $pathRoot
+              $segments = @($currentPath)
+              $relativePath = [System.IO.Path]::GetRelativePath($pathRoot, $fullPath)
+              if ($relativePath -ne '.') {
+                  foreach ($segment in $relativePath.Split([System.IO.Path]::DirectorySeparatorChar, [System.StringSplitOptions]::RemoveEmptyEntries)) {
+                      $currentPath = Join-Path -Path $currentPath -ChildPath $segment
+                      $segments += $currentPath
+                  }
+              }
+
+              return $segments
+          }
+
+          function Assert-NoReparsePoint {
+              param([Parameter(Mandatory = $true)][string]$Path)
+
+              if (-not (Test-Path -LiteralPath $Path)) {
+                  throw "Required path does not exist: $Path"
+              }
+
+              $item = Get-Item -LiteralPath $Path -Force
+              if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                  throw "Path must not be a reparse point: $Path"
+              }
+          }
+
+          try {
+              if ([string]::IsNullOrWhiteSpace($runnerTemp)) {
+                  throw 'RUNNER_TEMP is required for artifact validation.'
+              }
+
+              foreach ($segmentPath in (Get-PathSegments -Path $expectedRoot)) {
+                  Assert-NoReparsePoint -Path $segmentPath
+              }
+
+              $rootItem = Get-Item -LiteralPath $expectedRoot -Force
+              if (-not $rootItem.PSIsContainer) {
+                  throw "Trusted artifact root must be a directory: $expectedRoot"
+              }
+
+              if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf)) {
+                  throw "Synchronization artifact is missing or is not a regular file: $artifactPath"
+              }
+
+              $artifact = Get-Item -LiteralPath $artifactPath -Force
+              if ($artifact.PSIsContainer) {
+                  throw "Synchronization artifact must not be a directory: $artifactPath"
+              }
+
+              if (($artifact.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                  throw "Synchronization artifact must not be a reparse point: $artifactPath"
+              }
+
+              if (($artifact.Attributes -band [System.IO.FileAttributes]::Directory) -ne 0) {
+                  throw "Synchronization artifact must be a regular file: $artifactPath"
+              }
+
+              $artifactValid = $true
+          }
+          catch {
+              $validationError = $_.Exception.Message
+              Write-Warning "Synchronization artifact validation failed: $validationError"
+          }
+
+          "artifact-valid=$artifactValid" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          if (-not $artifactValid) {
+              exit 1
+          }
+
+      - name: Upload synchronization dry-run log
+        if: ${{ always() && steps.validate.outputs.artifact-valid == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: sync-dry-run-log
+          path: ${{ runner.temp }}/sync-dry-run-artifact/sync-dry-run.log
+          if-no-files-found: error
+          retention-days: 1
