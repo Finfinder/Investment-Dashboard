@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Ignore internal Copilot agents, skills, internal prompts, and harness metadata in `.gitignore`.
+
+### Removed
+- Untrack internal Copilot agents, skills, internal prompts, and harness configuration files (`.github/agents`, `.github/internal-prompts`, `.github/skills`, `github/skills`, `.github/harness.json`, `harness.lock.json`) from repository.
+
 ### Added
 - Standard repository documentation (`README.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `LICENSE`).
 - Issue templates for bug reports and feature requests.

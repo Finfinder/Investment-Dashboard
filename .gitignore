@@ -40,3 +40,11 @@ Thumbs.db
 .harness-state/
 .sync-backup/
 
+# AI agents, skills, and harness metadata
+.github/agents/
+.github/internal-prompts/
+.github/skills/
+github/skills/
+.github/harness.json
+harness.lock.json
+
