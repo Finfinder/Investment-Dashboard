@@ -7,7 +7,11 @@ node_modules/
 dist/
 dist-ssr/
 build/
+coverage/
 *.local
+inwestycje_*.xlsx
+inwestycje_*.csv
+inwestycje_*.xml
 
 # Logs
 npm-debug.log*

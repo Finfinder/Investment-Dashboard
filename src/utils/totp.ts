@@ -6,6 +6,24 @@
 const BASE32_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
 /**
+ * Universal demo 2FA code. It is accepted **only** in a Vite development build
+ * (see `isDemo2FACodeEnabled`). Vite statically replaces `import.meta.env.DEV`
+ * with `false` in production bundles, which removes this code path entirely.
+ */
+export const DEMO_2FA_CODE = '123456';
+
+/**
+ * Whether the development-only demo 2FA code is accepted.
+ *
+ * `import.meta.env.DEV` is a real boolean provided by Vite/Vitest and is
+ * statically replaced with `false` in production builds, so the demo code path
+ * can never be reached in a production bundle.
+ */
+export function isDemo2FACodeEnabled(): boolean {
+  return import.meta.env.DEV === true;
+}
+
+/**
  * Generate a random Base32 secret key (16 or 32 chars)
  */
 export function generateSecret(length = 16): string {
@@ -95,8 +113,9 @@ export async function generateTOTP(secret: string, timeStepOffset = 0): Promise<
 }
 
 /**
- * Verify TOTP code against secret key (allowing ±1 time step window = 30s tolerance)
- * Also accepts demo master code '123456' or valid emergency backup code.
+ * Verify TOTP code against secret key (allowing ±1 time step window = 30s tolerance).
+ * Also accepts a valid emergency backup code. The demo master code is accepted
+ * only in development builds.
  */
 export async function verifyTOTP(
   inputCode: string,
@@ -105,8 +124,8 @@ export async function verifyTOTP(
 ): Promise<{ valid: boolean; usedBackupCode?: string }> {
   const cleanCode = inputCode.replace(/[\s-]/g, '').trim();
 
-  // Check demo fallback code
-  if (cleanCode === '123456') {
+  // Demo master code - development builds only, never in production
+  if (isDemo2FACodeEnabled() && cleanCode === DEMO_2FA_CODE) {
     return { valid: true };
   }
 

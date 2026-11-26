@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { QRCodeDisplay } from './QRCodeDisplay';
+import { DEMO_2FA_CODE } from '../../utils/totp';
 import { ShieldCheck, Copy, Check, QrCode, Key, Lock, AlertTriangle } from 'lucide-react';
 
 interface TwoFactorSetupModalProps {
@@ -211,7 +212,10 @@ export const TwoFactorSetupModal: React.FC<TwoFactorSetupModalProps> = ({
               </div>
 
               <div style={{ fontSize: '0.78rem', color: '#64748b', textAlign: 'center', marginBottom: '1.2rem' }}>
-                Wskazówka: Kod odświeża się co 30 sekund. Dla testów akceptowany jest kod: <strong style={{ color: '#f8fafc' }}>123456</strong>
+                Wskazówka: Kod odświeża się co 30 sekund.
+                {import.meta.env.DEV && (
+                  <> Dla testów akceptowany jest kod: <strong style={{ color: '#f8fafc' }}>{DEMO_2FA_CODE}</strong></>
+                )}
               </div>
 
               <div className="modal-footer" style={{ padding: '0.5rem 0 0 0', borderTop: 'none' }}>
