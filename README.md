@@ -35,6 +35,7 @@ A modern, high-performance financial tracking web application designed for indiv
 | **Build & Dev Tool** | [Vite 6](https://vitejs.dev/) |
 | **Visualization** | [Chart.js 4](https://www.chartjs.org/) & [react-chartjs-2](https://react-chartjs-2.js.org/) |
 | **File Parsing** | [PapaParse](https://www.papaparse.com/) (CSV) & [SheetJS (xlsx)](https://sheetjs.com/) |
+| **Testing** | [Vitest](https://vitest.dev/) & [React Testing Library](https://testing-library.com/) |
 | **Icons** | [Lucide React](https://lucide.dev/) |
 | **Market Data** | Stooq Provider Adapter |
 
@@ -75,6 +76,16 @@ A modern, high-performance financial tracking web application designed for indiv
 5. **Preview production build**:
    ```bash
    npm run preview
+   ```
+
+6. **Run automated test suite**:
+   ```bash
+   npm test
+   ```
+
+7. **Run tests with coverage reporting**:
+   ```bash
+   npm run test:coverage
    ```
 
 ---

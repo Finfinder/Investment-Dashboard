@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { DEMO_2FA_CODE } from '../../utils/totp';
 import { ShieldCheck, Lock, Mail, User, CheckSquare, Square, X, AlertCircle, KeyRound, Info } from 'lucide-react';
 
 interface AuthModalProps {
@@ -7,6 +8,25 @@ interface AuthModalProps {
   onClose: () => void;
   initialMode?: 'login' | 'register';
 }
+
+/**
+ * Hint advertising the demo 2FA code. Rendered only in Vite development builds;
+ * `import.meta.env.DEV` is statically replaced with `false` in production.
+ */
+const Demo2FAHint: React.ReactNode = import.meta.env.DEV ? (
+  <div style={{
+    fontSize: '0.75rem',
+    color: '#10b981',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    padding: '0.6rem 0.75rem',
+    borderRadius: '6px',
+    marginBottom: '1.5rem',
+    border: '1px solid rgba(16, 185, 129, 0.3)',
+    textAlign: 'center'
+  }}>
+    🔑 Dla celów testowych użyj kodu: <strong>{DEMO_2FA_CODE}</strong>
+  </div>
+) : null;
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'login' }) => {
   const { login, register, verify2FA } = useAuth();
@@ -462,7 +482,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMo
                   required
                   maxLength={6}
                   autoFocus
-                  placeholder="123456"
+                  placeholder="000000"
                   value={token2FA}
                   onChange={(e) => setToken2FA(e.target.value.replace(/[^0-9]/g, ''))}
                   className="form-input"
@@ -477,19 +497,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMo
                 />
               </div>
 
-              {/* Demo 2FA Hint */}
-              <div style={{ 
-                fontSize: '0.75rem', 
-                color: '#10b981', 
-                backgroundColor: 'rgba(16, 185, 129, 0.1)', 
-                padding: '0.6rem 0.75rem', 
-                borderRadius: '6px', 
-                marginBottom: '1.5rem',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
-                textAlign: 'center'
-              }}>
-                🔑 Dla celów testowych użyj kodu: <strong>123456</strong>
-              </div>
+              {/* Demo 2FA Hint - development builds only */}
+              {Demo2FAHint}
             </>
           )}
 

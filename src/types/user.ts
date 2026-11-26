@@ -28,6 +28,7 @@ export interface UserRecord {
   passwordHash: string; // w demo prosty tekst/hash
   profile: UserProfile;
   twoFactorSecret?: string;
+  backupCodes?: string[];
 }
 
 export interface AuthResponse {

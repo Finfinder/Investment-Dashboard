@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Portfolio, Transaction, HoldingPosition, PortfolioSummaryStats } from '../types/portfolio';
 import { MarketQuote } from '../types/marketData';
 import { StorageService } from '../services/storage/StorageService';
@@ -60,7 +60,13 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setSelectedPortfolioId('ALL');
 
         // Fetch quotes for all tickers present in transactions
-        const tickers = Array.from(new Set(loadedTxs.map(t => t.ticker).filter(Boolean))) as string[];
+        const tickers = Array.from(
+          new Set(
+            loadedTxs
+              .filter(t => (t.type === 'BUY' || t.type === 'SELL') && t.ticker && t.ticker !== 'N/A')
+              .map(t => t.ticker)
+          )
+        ) as string[];
         if (tickers.length > 0) {
           const fetchedQuotes = await marketProvider.getQuotes(tickers);
           setQuotes(fetchedQuotes);
@@ -73,42 +79,52 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setIsLoading(false);
       }
     };
-    initData();
+    void initData();
   }, [currentUserId]);
 
-  const syncPrices = async () => {
+  const syncPrices = useCallback(async () => {
     setIsSyncing(true);
     try {
-      const tickers = Array.from(new Set(transactions.map(t => t.ticker).filter(Boolean))) as string[];
-      const fetchedQuotes = await marketProvider.getQuotes(tickers);
-      setQuotes(fetchedQuotes);
+      const tickers = Array.from(
+        new Set(
+          transactions
+            .filter(t => (t.type === 'BUY' || t.type === 'SELL') && t.ticker && t.ticker !== 'N/A')
+            .map(t => t.ticker)
+        )
+      ) as string[];
+      if (tickers.length > 0) {
+        const fetchedQuotes = await marketProvider.getQuotes(tickers);
+        setQuotes(fetchedQuotes);
+      } else {
+        setQuotes(new Map());
+      }
       setLastSyncTime(new Date().toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }));
     } catch (err) {
       console.error('Failed to sync prices', err);
     } finally {
       setIsSyncing(false);
     }
-  };
+  }, [transactions]);
 
-  const addPortfolio = async (data: Omit<Portfolio, 'id' | 'createdAt' | 'updatedAt'>) => {
+  const addPortfolio = useCallback(async (data: Omit<Portfolio, 'id' | 'createdAt' | 'updatedAt'>) => {
     const newPort: Portfolio = {
       ...data,
-      id: 'port-' + Math.random().toString(36).substr(2, 9),
+      id: 'port-' + Math.random().toString(36).slice(2, 11),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
     const updated = [...portfolios, newPort];
     setPortfolios(updated);
     await storageAdapter.savePortfolios(updated, currentUserId);
-  };
+  }, [portfolios, currentUserId, storageAdapter]);
 
-  const updatePortfolio = async (id: string, updates: Partial<Portfolio>) => {
+  const updatePortfolio = useCallback(async (id: string, updates: Partial<Portfolio>) => {
     const updated = portfolios.map(p => p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p);
     setPortfolios(updated);
     await storageAdapter.savePortfolios(updated, currentUserId);
-  };
+  }, [portfolios, currentUserId, storageAdapter]);
 
-  const deletePortfolio = async (id: string) => {
+  const deletePortfolio = useCallback(async (id: string) => {
     const updatedPortfolios = portfolios.filter(p => p.id !== id);
     const updatedTxs = transactions.filter(t => t.portfolioId !== id);
     setPortfolios(updatedPortfolios);
@@ -116,12 +132,12 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     await storageAdapter.savePortfolios(updatedPortfolios, currentUserId);
     await storageAdapter.saveTransactions(updatedTxs, currentUserId);
     if (selectedPortfolioId === id) setSelectedPortfolioId('ALL');
-  };
+  }, [portfolios, transactions, selectedPortfolioId, currentUserId, storageAdapter]);
 
-  const addTransaction = async (txData: Omit<Transaction, 'id'>) => {
+  const addTransaction = useCallback(async (txData: Omit<Transaction, 'id'>) => {
     const newTx: Transaction = {
       ...txData,
-      id: 'tx-' + Math.random().toString(36).substr(2, 9)
+      id: 'tx-' + Math.random().toString(36).slice(2, 11)
     };
     const updated = [newTx, ...transactions];
     setTransactions(updated);
@@ -130,15 +146,15 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const q = await marketProvider.getQuote(newTx.ticker);
       setQuotes(prev => new Map(prev).set(newTx.ticker!, q));
     }
-  };
+  }, [transactions, quotes, currentUserId, storageAdapter]);
 
-  const deleteTransaction = async (id: string) => {
+  const deleteTransaction = useCallback(async (id: string) => {
     const updated = transactions.filter(t => t.id !== id);
     setTransactions(updated);
     await storageAdapter.saveTransactions(updated, currentUserId);
-  };
+  }, [transactions, currentUserId, storageAdapter]);
 
-  const importXTBFile = async (file: File, targetPortfolioId: string) => {
+  const importXTBFile = useCallback(async (file: File, targetPortfolioId: string) => {
     try {
       const parseResult = await XTBImporter.parseFile(file, targetPortfolioId);
       if (parseResult.transactions.length > 0) {
@@ -146,7 +162,13 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setTransactions(updated);
         await storageAdapter.saveTransactions(updated, currentUserId);
 
-        const newTickers = Array.from(new Set(parseResult.transactions.map(t => t.ticker).filter(Boolean))) as string[];
+        const newTickers = Array.from(
+          new Set(
+            parseResult.transactions
+              .filter(t => (t.type === 'BUY' || t.type === 'SELL') && t.ticker && t.ticker !== 'N/A')
+              .map(t => t.ticker)
+          )
+        ) as string[];
         if (newTickers.length > 0) {
           const newQuotes = await marketProvider.getQuotes(newTickers);
           setQuotes(prev => {
@@ -163,16 +185,17 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         };
       }
       return { success: false, count: 0, message: 'Plik nie zawierał żadnych rozpoznanych transakcji.' };
-    } catch (err: any) {
-      return { success: false, count: 0, message: err.message || 'Błąd importu pliku XTB.' };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Błąd importu pliku XTB.';
+      return { success: false, count: 0, message: msg };
     }
-  };
+  }, [transactions, currentUserId, storageAdapter]);
 
-  const exportBackup = async () => {
+  const exportBackup = useCallback(async () => {
     return await storageAdapter.exportBackupData(currentUserId);
-  };
+  }, [currentUserId, storageAdapter]);
 
-  const importBackup = async (json: string) => {
+  const importBackup = useCallback(async (json: string) => {
     const ok = await storageAdapter.importBackupData(json, currentUserId);
     if (ok) {
       const loadedPortfolios = await storageAdapter.getPortfolios(currentUserId);
@@ -181,38 +204,69 @@ export const PortfolioProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setTransactions(loadedTxs);
     }
     return ok;
-  };
+  }, [currentUserId, storageAdapter]);
 
   // Relevant transactions based on selectedPortfolioId
-  const relevantTransactions = selectedPortfolioId === 'ALL'
-    ? transactions
-    : transactions.filter(t => t.portfolioId === selectedPortfolioId);
+  const relevantTransactions = useMemo(
+    () => selectedPortfolioId === 'ALL'
+      ? transactions
+      : transactions.filter(t => t.portfolioId === selectedPortfolioId),
+    [selectedPortfolioId, transactions]
+  );
 
-  const holdings = PortfolioCalculations.calculateHoldings(relevantTransactions, quotes);
-  const summaryStats = PortfolioCalculations.calculateSummaryStats(portfolios, transactions, quotes);
+  const holdings = useMemo(
+    () => PortfolioCalculations.calculateHoldings(relevantTransactions, quotes),
+    [relevantTransactions, quotes]
+  );
+
+  const summaryStats = useMemo(
+    () => PortfolioCalculations.calculateSummaryStats(portfolios, transactions, quotes),
+    [portfolios, transactions, quotes]
+  );
+
+  const contextValue: PortfolioContextType = useMemo(() => ({
+    portfolios,
+    selectedPortfolioId,
+    setSelectedPortfolioId,
+    transactions,
+    quotes,
+    holdings,
+    summaryStats,
+    isLoading,
+    isSyncing,
+    lastSyncTime,
+    addPortfolio,
+    updatePortfolio,
+    deletePortfolio,
+    addTransaction,
+    deleteTransaction,
+    importXTBFile,
+    syncPrices,
+    exportBackup,
+    importBackup
+  }), [
+    portfolios,
+    selectedPortfolioId,
+    transactions,
+    quotes,
+    holdings,
+    summaryStats,
+    isLoading,
+    isSyncing,
+    lastSyncTime,
+    addPortfolio,
+    updatePortfolio,
+    deletePortfolio,
+    addTransaction,
+    deleteTransaction,
+    importXTBFile,
+    syncPrices,
+    exportBackup,
+    importBackup
+  ]);
 
   return (
-    <PortfolioContext.Provider value={{
-      portfolios,
-      selectedPortfolioId,
-      setSelectedPortfolioId,
-      transactions,
-      quotes,
-      holdings,
-      summaryStats,
-      isLoading,
-      isSyncing,
-      lastSyncTime,
-      addPortfolio,
-      updatePortfolio,
-      deletePortfolio,
-      addTransaction,
-      deleteTransaction,
-      importXTBFile,
-      syncPrices,
-      exportBackup,
-      importBackup
-    }}>
+    <PortfolioContext.Provider value={contextValue}>
       {children}
     </PortfolioContext.Provider>
   );
